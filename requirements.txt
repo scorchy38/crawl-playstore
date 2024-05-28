@@ -1,0 +1,8 @@
+requests
+bs4
+pandas
+openai
+openpyxl
+google_play_scraper
+certifi
+python-dotenv
