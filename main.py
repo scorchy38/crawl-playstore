@@ -1,64 +1,72 @@
-import pandas as pd
-import openai
-from google_play_scraper import search, app as gplay_app
-from dotenv import load_dotenv
-import os
+from google_play_scraper import search, app
+from openpyxl import Workbook
+import logging
 
-# Load API key from .env file
-load_dotenv()
-openai.api_key = os.getenv('OPENAI_API_KEY')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Define the categories to search from
-target_categories = [
-    'ecommerce', 'music/podcast streaming', 'fintech',
-    'food delivery', 'utility', 'mobile dashboards'
-]
+target_search_terms = {
+    'ecommerce': 'shopping',
+    'music/podcast streaming': 'music streaming',
+    'fintech': 'finance',
+    'food delivery': 'food delivery',
+    'utility': 'productivity',
+    'mobile dashboards': 'business'
+}
 
+wb = Workbook()
+ws = wb.active
+ws.title = "Apps Data"
 
-def categorize_app(app_name, app_description):
-    prompt = f"Categorize the following app into one of the categories: ecommerce, music/podcast streaming, fintech, food delivery, utility, mobile dashboards.\n\nApp Name: {app_name}\nDescription: {app_description}\n\nCategory:"
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": prompt}
-        ],
-        max_tokens=10
-    )
-    app_category = response.choices[0].message['content'].strip().lower()
-    return app_category
+header = ['App Name', 'Description', 'Downloads', 'Developer Email', 'Category', 'App Link', 'Website']
+ws.append(header)
 
 
-apps_data = []
+def fetch_apps(search_term, category_name):
+    try:
+        results = search(
+            search_term,
+            lang='en',
+            country='us',
+            n_hits=100
+        )
 
-search_terms = ["ecommerce", "music", "podcast", "fintech", "food delivery", "utility", "budgeting", "notes",
-                "mobile dashboards"]
-for term in search_terms:
-    results = search(term, lang='en', country='us', n_hits=200)
+        if not results:
+            logging.info(f"No results for category {category_name} with search term {search_term}.")
+            return
 
-    for result in results:
-        try:
+        for result in results:
             app_id = result['appId']
-            details = gplay_app(app_id, lang='en', country='us')
+            details = app(app_id, lang='en', country='us')
 
             name = details['title']
             description = details['description']
-            downloads = int(details['installs'].replace(',', '').replace('+', ''))
+            downloads = details['installs']
             developer_email = details.get('developerEmail', 'N/A')
+            app_link = f"https://play.google.com/store/apps/details?id={app_id}"
+            website = details.get('developerWebsite', 'N/A')
 
-            if downloads < 100000:
-                category = categorize_app(name, description)
-                if category in target_categories:
-                    apps_data.append({
-                        'App Name': name,
-                        'Description': description,
-                        'Downloads': downloads,
-                        'Developer Email': developer_email,
-                        'Category': category
-                    })
-        except Exception as e:
-            print(f"Error fetching details for {result['appId']}: {e}")
+            downloads_count = int(downloads.replace(',', '').replace('+', '').split(' ')[0])
+            if downloads_count < 100000:
+                ws.append([
+                    name,
+                    description,
+                    downloads,
+                    developer_email,
+                    category_name,
+                    app_link,
+                    website
+                ])
 
-df = pd.DataFrame(apps_data)
-df.to_excel('filtered_apps.xlsx', index=False)
-print("Data saved to filtered_apps.xlsx")
+                wb.save('filtered_apps.xlsx')
+
+        logging.info(f"Processed apps for category {category_name} with search term {search_term}.")
+
+    except Exception as e:
+        logging.error(f"Error fetching details for category {category_name} with search term {search_term}: {e}")
+
+
+for category_name, search_term in target_search_terms.items():
+    logging.info(f"Fetching apps for category {category_name}")
+    fetch_apps(search_term, category_name)
+
+logging.info("Data saved to filtered_apps.xlsx")
